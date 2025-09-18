@@ -1,0 +1,96 @@
+'use strict';
+
+/** @type {import('sequelize-cli').Migration} */
+module.exports = {
+  async up (queryInterface) {
+    const now = new Date();
+    const q = (text, author='Anonyme', language='fr', is_active=true) =>
+      ({ text, author, language, is_active, createdAt: now, updatedAt: now });
+
+    const quotes = [
+      q("Chaque jour est une nouvelle chance de devenir meilleur."),
+      q("La discipline t’amène là où la motivation s’arrête."),
+      q("Fais un petit pas aujourd’hui, un plus grand demain."),
+      q("Tu es plus près que tu ne le crois."),
+      q("Le progrès vaut mieux que la perfection."),
+      q("Commence là où tu es, avec ce que tu as.", "Arthur Ashe"),
+      q("L’énergie suit l’attention."),
+      q("Ce que tu répètes, tu deviens."),
+      q("Ne compte pas les jours, fais que les jours comptent.", "Muhammad Ali"),
+      q("Petit à petit, l’oiseau fait son nid.", "Proverbe"),
+      q("Tu ne perds jamais : soit tu gagnes, soit tu apprends.", "Nelson Mandela"),
+      q("Le meilleur moment pour planter un arbre, c’était il y a 20 ans. Le deuxième meilleur, c’est maintenant.", "Proverbe"),
+      q("Le succès est la somme de petits efforts répétés jour après jour.", "Robert Collier"),
+      q("Ce n’est pas la vitesse qui compte, c’est la constance."),
+      q("Rien ne fonctionne si tu ne travailles pas.", "Maya Angelou"),
+      q("Fais de ton ‘plus tard’ un ‘maintenant’."),
+      q("Les grandes choses prennent du temps."),
+      q("Tu es le seul responsable de ton effort."),
+      q("Les habitudes forgent le caractère, le caractère forge la réussite."),
+      q("L’action bat l’inaction, à chaque fois."),
+      q("Si c’est important pour toi, tu trouveras un moyen."),
+      q("Avance même quand c’est imparfait."),
+      q("Un jour ou jour un : à toi de choisir."),
+      q("Les excuses brûlent zéro calories et rapportent zéro XP."),
+      q("La motivation te lance, les habitudes te portent."),
+      q("Tu n’as pas besoin d’être extrême, juste constant."),
+      q("Chaque petite victoire compte."),
+      q("La douleur est temporaire, la fierté est durable."),
+      q("Reste focalisé sur la prochaine bonne action."),
+      q("Moins de discours, plus de pratique."),
+      q("Ta future version te remercie déjà."),
+      q("Le succès laisse des indices : routines et constance."),
+      q("N’attends pas d’être prêt, commence et ajuste."),
+      q("Faire 1% mieux chaque jour change tout.", "James Clear"),
+      q("Tombe 7 fois, relève-toi 8.", "Proverbe japonais"),
+      q("On devient ce que l’on fait le plus souvent.", "Aristote"),
+      q("La sueur d’aujourd’hui, la confiance de demain."),
+      q("Les objectifs donnent un sens, les systèmes donnent des résultats."),
+      q("Tu n’as pas besoin de motivation si tu as un plan."),
+      q("Choisis ta difficulté : la discipline ou le regret."),
+      q("Les limites d’hier ne te définissent pas aujourd’hui."),
+      q("Une heure par jour change une vie en un an."),
+      q("Nourris la flamme, pas l’excuse."),
+      q("Réduis la friction, multiplie l’action."),
+      q("Le courage, c’est faire le premier pas sans voir tout l’escalier.", "Martin Luther King Jr."),
+      q("La différence entre ‘un jour’ et ‘jour un’, c’est une décision."),
+      q("Ton futur dépend de ce que tu fais maintenant.", "Gandhi"),
+      q("Ce n’est pas censé être facile, c’est censé en valoir la peine."),
+      q("Rien ne change si rien ne change."),
+      q("Les rêves ont besoin de dates et d’actions."),
+      q("Quand c’est dur, tu grandis."),
+      q("La cohérence bat l’intensité."),
+      q("Mesure le progrès, pas la perfection."),
+      q("Chaque session compte, même la courte."),
+      q("Ta pire séance ? Celle que tu n’as pas faite."),
+      q("Focus sur le processus, le résultat suivra."),
+      q("Un petit pas > zéro pas."),
+      q("Les obstacles sont des exercices déguisés."),
+      q("Continue : la version 2.0 se construit aujourd’hui."),
+      q("Tu n’abandonnes pas parce que c’est dur, c’est dur parce que tu montes de niveau."),
+      q("La rigueur est une forme d’amour pour soi."),
+      q("Construis des habitudes qui te construisent."),
+      q("Moins de perfection, plus d’itérations."),
+      q("Ton effort d’aujourd’hui crée ton momentum de demain."),
+      q("Si tu te perds, reviens à la prochaine bonne petite action."),
+      q("Le temps passera quoi qu’il arrive : fais qu’il travaille pour toi."),
+      q("La constance transforme le possible en probable."),
+      q("Tu n’as pas besoin d’en faire beaucoup, tu as besoin de le faire souvent."),
+      q("Chaque redémarrage est un progrès si tu redémarres plus vite."),
+      q("Les résultats adorent la patience."),
+      q("Fais-le pour toi, version longue durée."),
+      q("Même à 70%, avance. 70% > 0%."),
+      q("Le doute tue plus de rêves que l’échec.", "Suzy Kassem"),
+      q("Ne compare pas ton chapitre 1 au chapitre 20 des autres."),
+      q("La répétition est la mère de l’excellence."),
+      q("Petite habitude, grand effet composé."),
+      q("Ce que tu contrôles aujourd’hui suffit : montre-toi."),
+    ];
+
+    await queryInterface.bulkInsert('Quotes', quotes, {});
+  },
+
+  async down (queryInterface) {
+    await queryInterface.bulkDelete('Quotes', null, {});
+  }
+};

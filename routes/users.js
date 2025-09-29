@@ -2,12 +2,14 @@
 const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize');
-const { sequelize, User, UserPriority, Category } = require('../models'); // ⬅️ + sequelize
+const { sequelize, User, UserPriority, Category } = require('../models');
 const { progressFromTotalXp } = require('../utils/xp');
-const requireAuth = require('../utils/requireAuth'); // ✅ auth obligatoire pour PATCH & PUT
 
-// GET /users/:id  → profil + xp_progress + onboarding_done
-router.get('/:id', async (req, res) => {
+const requireAuth = require('../utils/requireAuth');         // ✅ auth obligatoire
+const ensureSameUser = require('../utils/ensureSameUser');   // ✅ blocage inter-utilisateurs
+
+// GET /users/:id  → profil + xp_progress + onboarding_done  (🔒 protégé)
+router.get('/:id', requireAuth, ensureSameUser, async (req, res) => {
   try {
     const u = await User.findByPk(req.params.id, {
       attributes: ['id', 'email', 'username', 'xp', 'level', 'onboarding_done', 'createdAt', 'updatedAt']
@@ -33,13 +35,10 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PATCH /users/:id → update email / username (protégé)
-router.patch('/:id', requireAuth, async (req, res) => {
+// PATCH /users/:id → update email / username  (🔒 protégé)
+router.patch('/:id', requireAuth, ensureSameUser, async (req, res) => {
   try {
-    const meId = Number(req.user?.id);
     const targetId = Number(req.params.id);
-    if (!meId) return res.status(401).json({ error: 'Non authentifié' });
-    if (meId !== targetId) return res.status(403).json({ error: 'Accès refusé' });
 
     const { email, username } = req.body || {};
     if (email == null && username == null) {
@@ -119,8 +118,8 @@ router.patch('/:id', requireAuth, async (req, res) => {
   }
 });
 
-// GET /users/:id/priorities → préférences (catégorie + score)
-router.get('/:id/priorities', async (req, res) => {
+// GET /users/:id/priorities → préférences (catégorie + score)  (🔒 protégé)
+router.get('/:id/priorities', requireAuth, ensureSameUser, async (req, res) => {
   try {
     const prefs = await UserPriority.findAll({
       where: { user_id: req.params.id },
@@ -134,15 +133,12 @@ router.get('/:id/priorities', async (req, res) => {
   }
 });
 
-// PUT /users/:id/priorities/order → enregistre l’ordre (protégé)
+// PUT /users/:id/priorities/order → enregistre l’ordre  (🔒 protégé)
 // Body: { ordered_category_ids: number[] }  (ordre du + prioritaire au - prioritaire)
-router.put('/:id/priorities/order', requireAuth, async (req, res) => {
+router.put('/:id/priorities/order', requireAuth, ensureSameUser, async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const meId = Number(req.user?.id);
     const targetId = Number(req.params.id);
-    if (!meId) { await t.rollback(); return res.status(401).json({ error: 'Non authentifié' }); }
-    if (meId !== targetId) { await t.rollback(); return res.status(403).json({ error: 'Accès refusé' }); }
 
     const arrRaw = req.body?.ordered_category_ids;
     if (!Array.isArray(arrRaw) || !arrRaw.length) {
@@ -165,8 +161,7 @@ router.put('/:id/priorities/order', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Aucun id de catégorie valide' });
     }
 
-    // --- Nouveau barème de scores par rang (1-indexé)
-    // 1er=100, 2e=90, 3e=80, 4e=70, 5e=60, 6e=50, puis on descend plus doucement
+    // Barème de scores par rang (1-indexé)
     const SCORE_TABLE = [100, 90, 80, 70, 60, 50, 40, 35, 30, 25, 20, 15, 10, 5, 0];
     const scoreForRank = (rank) => {
       const idx = rank - 1;
@@ -192,6 +187,5 @@ router.put('/:id/priorities/order', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'Erreur serveur' });
   }
 });
-
 
 module.exports = router;

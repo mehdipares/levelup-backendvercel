@@ -5,6 +5,9 @@ const { sequelize, Sequelize, User, UserGoal, GoalTemplate, UserGoalCompletion, 
 const { Op } = Sequelize;
 const { progressFromTotalXp } = require('../utils/xp');
 
+const requireAuth = require('../utils/requireAuth');         // ✅ auth obligatoire
+const ensureSameUser = require('../utils/ensureSameUser');   // ✅ blocage inter-utilisateurs
+
 /* ------------------------- Helpers cadence & périodes ------------------------- */
 
 function overridesFromCadence(cadence) {
@@ -48,8 +51,6 @@ function getPeriodBounds(now, type, interval = 1, weekStart = 1) {
   }
 
   if (type === 'weekly') {
-    // now.getDay(): 0=dim..6=sam
-    // on mappe pour avoir 0=lundi..6=dim et calculer le décalage proprement
     const jsWeekday   = today.getDay();         // 0..6 (dim..sam)
     const weekdayMon0 = (jsWeekday + 6) % 7;    // 0..6 (lun..dim)
     const startMon0   = ((weekStart % 7) + 6) % 7; // 0..6 (lun..dim)
@@ -85,6 +86,23 @@ async function getXpMultiplier(userId, categoryId) {
   return 1.0;
 }
 
+/* ------------------------- 🔒 Gardes globaux de sécurité ------------------------- */
+
+// Pour réutiliser ensureSameUser même si le param s'appelle :userId
+const mapParamToId = (param) => (req, res, next) => {
+  if (req.params && Object.prototype.hasOwnProperty.call(req.params, param)) {
+    req.params.id = req.params[param];
+  }
+  return ensureSameUser(req, res, next);
+};
+
+// Protège /users/:id/...
+router.use('/:id', requireAuth, ensureSameUser);
+
+// Protège aussi /users/:userId/... (toutes les routes ci-dessous qui utilisent :userId)
+router.use('/:userId', requireAuth, mapParamToId('userId'));
+
+
 /* ------------------------- GET user goals (lazy rollover) ------------------------- */
 // GET /users/:id/user-goals?status=active|archived|all
 router.get('/:id/user-goals', async (req, res) => {
@@ -93,7 +111,7 @@ router.get('/:id/user-goals', async (req, res) => {
 
   try {
     const where = { user_id: userId };
-    if (status === 'active')     where.status = 'active';
+    if (status === 'active')        where.status = 'active';
     else if (status === 'archived') where.status = 'archived';
 
     const rows = await UserGoal.findAll({
@@ -237,9 +255,9 @@ router.patch('/:userId/user-goals/:userGoalId/complete', async (req, res) => {
     const gt = userGoal.GoalTemplate;
 
     const effType     = userGoal.frequency_type_override     || gt.frequency_type;
-    const effInterval = userGoal.frequency_interval_override ?? gt.frequency_interval;
-    const effWeek     = userGoal.week_start_override         ?? gt.week_start;
-    const effMax      = userGoal.max_per_period_override     ?? gt.max_per_period;
+    const effInterval = userGoal.frequency_interval_override || gt.frequency_interval;
+    const effWeek     = userGoal.week_start_override         || gt.week_start;
+    const effMax      = userGoal.max_per_period_override     || gt.max_per_period;
 
     const now = new Date();
     const { start, end } = getPeriodBounds(now, effType, effInterval, effWeek);

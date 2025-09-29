@@ -3,6 +3,8 @@ require('dotenv').config();
 require('node:dns').setDefaultResultOrder('ipv4first');
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { sequelize } = require('./models');
 
 // ---- DIAG Réseau DB (ajouts) ----
@@ -68,6 +70,11 @@ const onboardingRouter    = require('./routes/onboarding');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// --- Sécurité & parsing (à mettre en tout premier) ---
+app.set('trust proxy', 1);   // important derrière proxy (Render/Vercel)
+app.use(helmet());           // headers de sécurité
+app.use(express.json());     // JSON parsing
+
 // ✅ CORS
 const allowedOrigins = [
   'http://localhost:3001',
@@ -79,15 +86,23 @@ const allowedOrigins = [
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    // Laisse l'errorHandler convertir proprement en 403 JSON
     return callback(new Error('CORS bloqué pour : ' + origin));
   },
   credentials: true
 }));
 
-app.use(express.json());
+// --- Rate limit ciblé Auth (anti brute-force) ---
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: 100,                 // 100 req/IP/15min
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' }
+});
 
 // --- Diag endpoints ---
-app.get('/db-test', async (req, res) => {
+app.get('/db-test', async (_req, res) => {
   try {
     await sequelize.authenticate();
     res.json({ status: 'ok', message: 'Connexion réussie ✅' });
@@ -96,13 +111,16 @@ app.get('/db-test', async (req, res) => {
   }
 });
 
-app.get('/__dbdiag', async (req, res) => {
+app.get('/__dbdiag', async (_req, res) => {
   const diag = await dbConnectivityDiag();
   res.json(diag);
 });
 
+// Health check pour Render
+app.get('/__health', (_req, res) => res.sendStatus(200));
+
 // Routes
-app.use('/auth',           authRouter);
+app.use('/auth',           authLimiter, authRouter);
 app.use('/categories',     categoriesRouter);
 app.use('/quotes',         quotesRouter);
 app.use('/goal-templates', maybeAuth, goalTemplatesRouter);
@@ -111,10 +129,14 @@ app.use('/users',          maybeAuth, usersRouter);
 app.use('/users',          maybeAuth, userGoalsRouter);
 
 // Ping
-app.get('/', (req, res) => { res.send('LevelUp backend is running!'); });
+app.get('/', (_req, res) => { res.send('LevelUp backend is running!'); });
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
+
+// Error handler global (doit être le dernier middleware)
+const errorHandler = require('./middlewares/errorHandler');
+app.use(errorHandler);
 
 // Boot
 app.listen(PORT, async () => {

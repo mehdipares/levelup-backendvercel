@@ -1,6 +1,44 @@
 const express = require('express');
 const router = express.Router();
 const { Quote } = require('../models');
+/**
+ * @swagger
+ * tags:
+ *   - name: Quotes
+ *     description: Citation du jour
+ */
+
+/**
+ * @swagger
+ * /quotes/today:
+ *   get:
+ *     summary: Recuperer la citation du jour
+ *     tags: [Quotes]
+ *     security: []
+ *     parameters:
+ *       - in: query
+ *         name: lang
+ *         required: false
+ *         schema:
+ *           type: string
+ *           example: fr
+ *         description: Langue (si supporte)
+ *     responses:
+ *       200:
+ *         description: Citation du jour
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/QuoteTodayResponse'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
+
 
 function dayHash(s){ let h=0; for (let i=0;i<s.length;i++){ h=(h*31 + s.charCodeAt(i))>>>0; } return h; }
 

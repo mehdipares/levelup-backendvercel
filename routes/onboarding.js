@@ -34,6 +34,55 @@ const { Op } = Sequelize;
    - Pourquoi 409 ? Car l'état actuel de la ressource (l'onboarding) est "déjà fait"
      et la requête (obtenir des questions pour recommencer) est en conflit avec cet état.
    ========================================================================== */
+   /**
+ * @swagger
+ * tags:
+ *   - name: Onboarding
+ *     description: Questionnaire d’onboarding et calcul des priorités
+ */
+
+/**
+ * @swagger
+ * /onboarding/questions:
+ *   get:
+ *     summary: Récupérer la liste des questions d’onboarding
+ *     tags: [Onboarding]
+ *     security: []
+ *     parameters:
+ *       - in: query
+ *         name: lang
+ *         required: false
+ *         schema:
+ *           type: string
+ *           example: fr
+ *         description: Langue souhaitée (fr/en si supporté)
+ *       - in: query
+ *         name: user_id
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           example: 1
+ *         description: "Optionnel : utile si tu veux bloquer les questions quand onboarding déjà fait"
+ *     responses:
+ *       200:
+ *         description: Liste des questions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/OnboardingQuestionsResponse'
+ *       409:
+ *         description: Onboarding déjà complété
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 router.get('/questions', async (req, res) => {
   try {
     // Langue de travail : 'fr' par défaut. On stocke les questions par langue en DB.
@@ -82,7 +131,7 @@ router.get('/questions', async (req, res) => {
    }
 
    Pipeline :
-   1) 🔐 Guard : refuse si user.onboarding_done = 1 (409 Conflict).
+   1) Guard : refuse si user.onboarding_done = 1 (409 Conflict).
    2) Validation : user existant, >= 12 réponses valides, questions actives/langue ok.
    3) Création d'une submission (trace de la passation).
    4) Sauvegarde de chaque réponse (bulkCreate).
@@ -100,6 +149,51 @@ router.get('/questions', async (req, res) => {
    - On encapsule le tout dans une transaction SQL pour garantir l'intégrité :
      soit tout passe, soit rien n'est écrit (rollback en cas d'erreur).
    ========================================================================== */
+   /**
+ * @swagger
+ * /onboarding/answers:
+ *   post:
+ *     summary: Envoyer les réponses d’onboarding et générer les priorités
+ *     tags: [Onboarding]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/OnboardingAnswersRequest'
+ *     responses:
+ *       200:
+ *         description: Priorités calculées + onboarding marqué comme terminé
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/OnboardingAnswersResponse'
+ *       400:
+ *         description: Réponses invalides / manquantes
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Utilisateur ou données nécessaires introuvables
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       409:
+ *         description: Onboarding déjà complété (ou conflit de soumission)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 router.post('/answers', async (req, res) => {
   const t = await sequelize.transaction(); // 🔒 début transaction
   try {

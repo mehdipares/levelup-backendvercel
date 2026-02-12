@@ -1,81 +1,28 @@
 // server.js
 require('dotenv').config();
-require('node:dns').setDefaultResultOrder('ipv4first');
 const express = require('express');
 const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 const { sequelize } = require('./models');
 
-// ---- DIAG Réseau DB (ajouts) ----
-const dns = require('node:dns').promises;
-const net = require('node:net');
-const https = require('node:https');
-const { URL } = require('node:url');
-
-function getDbTarget() {
-  const { DATABASE_URL, DB_HOST, DB_PORT = '3306', DB_NAME, DB_SSL = 'false' } = process.env;
-  if (DATABASE_URL) {
-    try {
-      const u = new URL(DATABASE_URL);
-      return { host: u.hostname, port: u.port || '3306', db: u.pathname.slice(1) || DB_NAME, ssl: DB_SSL === 'true' };
-    } catch { /* ignore */ }
-  }
-  return { host: DB_HOST, port: DB_PORT, db: DB_NAME, ssl: DB_SSL === 'true' };
-}
-
-async function dbConnectivityDiag() {
-  const target = getDbTarget();
-  const out = { env: { host: target.host, port: String(target.port), db: target.db, ssl: target.ssl } };
-
-  // DNS
-  try {
-    const ips = await dns.lookup(target.host, { all: true });
-    out.dns = ips.map(i => i.address);
-  } catch (e) {
-    out.dns = { error: e.code || e.message };
-  }
-
-  // TCP
-  out.tcp = await new Promise(resolve => {
-    const socket = net.createConnection({ host: target.host, port: Number(target.port), timeout: 6000 }, () => {
-      socket.destroy();
-      resolve({ ok: true });
-    });
-    socket.on('timeout', () => { socket.destroy(); resolve({ ok: false, error: 'TIMEOUT' }); });
-    socket.on('error', (err) => { resolve({ ok: false, error: err.code || err.message }); });
-  });
-
-  // IP sortante
-  out.egress = await new Promise(res => {
-    https.get('https://api.ipify.org?format=json', r => {
-      let data = ''; r.on('data', c => data += c);
-      r.on('end', () => { try { res(JSON.parse(data)); } catch { res({}); } });
-    }).on('error', () => res({}));
-  });
-
-  return out;
-}
-
 // Routers
-const usersRouter         = require('./routes/users');
-const userGoalsRouter     = require('./routes/userGoals');
+const usersRouter         = require('./routes/users');          // ex: /users (profil, liste, etc.)
+const userGoalsRouter     = require('./routes/userGoals');      // ex: /users/:id/user-goals...
 const categoriesRouter    = require('./routes/categories');
-const authRouter          = require('./routes/auth');
+const authRouter          = require('./routes/auth');           // OK si déjà fonctionnel
 const quotesRouter        = require('./routes/quotes');
 const maybeAuth           = require('./utils/maybeAuth');
 const goalTemplatesRouter = require('./routes/goalTemplates');
 const onboardingRouter    = require('./routes/onboarding');
 
 const app = express();
+const swaggerUi = require("swagger-ui-express");
+const swaggerSpec = require("./swagger");
+
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
 const PORT = process.env.PORT || 3000;
 
-// --- Sécurité & parsing (à mettre en tout premier) ---
-app.set('trust proxy', 1);   // important derrière proxy (Render/Vercel)
-app.use(helmet());           // headers de sécurité
-app.use(express.json());     // JSON parsing
-
-// ✅ CORS
+// ✅ CORS : autoriser localhost et ton front Vercel
 const allowedOrigins = [
   'http://localhost:3001',
   'https://level-up-2n89-iota.vercel.app',
@@ -83,78 +30,54 @@ const allowedOrigins = [
   'https://level-up-2n89-xqy5538lh-dims-projects-645dd5d5.vercel.app',
   'https://front-end-level-up.onrender.com'
 ];
+
+
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    // Laisse l'errorHandler convertir proprement en 403 JSON
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
     return callback(new Error('CORS bloqué pour : ' + origin));
   },
   credentials: true
 }));
 
-// --- Rate limit ciblé Auth (anti brute-force) ---
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 min
-  max: 100,                 // 100 req/IP/15min
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests, please try again later.' }
-});
-
-// --- Diag endpoints ---
-app.get('/db-test', async (_req, res) => {
+app.get('/db-test', async (req, res) => {
   try {
     await sequelize.authenticate();
-    res.json({ status: 'ok', message: 'Connexion réussie ✅' });
+    res.json({ status: 'ok', message: 'Connexion réussiee ✅' });
   } catch (err) {
     res.status(500).json({ status: 'error', message: err.message });
   }
 });
+app.use(express.json());
 
-app.get('/__dbdiag', async (_req, res) => {
-  const diag = await dbConnectivityDiag();
-  res.json(diag);
-});
-
-// Health check pour Render
-app.get('/__health', (_req, res) => res.sendStatus(200));
-
-// Routes
-app.use('/auth',           authLimiter, authRouter);
+// Mount des routes
+app.use('/auth',           authRouter);
 app.use('/categories',     categoriesRouter);
 app.use('/quotes',         quotesRouter);
 app.use('/goal-templates', maybeAuth, goalTemplatesRouter);
 app.use('/onboarding',     onboardingRouter);
-app.use('/users',          maybeAuth, usersRouter);
-app.use('/users',          maybeAuth, userGoalsRouter);
 
-// Ping
-app.get('/', (_req, res) => { res.send('LevelUp backend is running!'); });
+// On monte *les deux* routers sous /users (ils gèrent des sous-chemins différents)
+app.use('/users', maybeAuth, usersRouter);
+app.use('/users', maybeAuth, userGoalsRouter);
 
-// 404
+// Ping simple
+app.get('/', (req, res) => {
+  res.send('LevelUp backend is running!');
+});
+
+// 404 (après toutes les routes)
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
-
-// Error handler global (doit être le dernier middleware)
-const errorHandler = require('./middlewares/errorHandler');
-app.use(errorHandler);
 
 // Boot
 app.listen(PORT, async () => {
   console.log(`✅ Serveur démarré sur http://localhost:${PORT}`);
-
-  // Log diag réseau (utile pour ETIMEDOUT)
-  const diag = await dbConnectivityDiag();
-  console.log('[DB DIAG]', JSON.stringify(diag, null, 2));
-
   try {
     await sequelize.authenticate();
     console.log('✅ Connexion à la base de données réussie');
   } catch (error) {
-    console.error('❌ Erreur de connexion à la base de données :', {
-      name: error?.name,
-      code: error?.parent?.code,
-      fatal: error?.parent?.fatal,
-      msg: error?.message
-    });
+    console.error('❌ Erreur de connexion à la base de données :', error);
   }
 });

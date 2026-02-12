@@ -1,112 +1,151 @@
-// routes/auth.js
 const express = require('express');
 const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-const { body, validationResult, matchedData } = require('express-validator');
 const { User } = require('../models');
 
 const router = express.Router();
-const SECRET = process.env.JWT_SECRET || 'levelup_secret'; // ⚠️ mets une vraie valeur en prod
 
-// Helper de validation (retourne 400 + détails)
-const validate = (rules) => [
-  ...rules,
-  (req, res, next) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
-        details: errors.array().map(e => ({ field: e.path, msg: e.msg }))
-      });
+/**
+ * @swagger
+ * tags:
+ *   - name: Auth
+ *     description: Authentification (JWT)
+ */
+
+/**
+ * @swagger
+ * /auth/register:
+ *   post:
+ *     summary: Inscription d’un nouvel utilisateur
+ *     tags: [Auth]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/AuthRegisterRequest'
+ *     responses:
+ *       201:
+ *         description: Compte créé
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthRegisterResponse'
+ *       400:
+ *         description: Email déjà utilisé ou données invalides
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
+/**
+ * @swagger
+ * /auth/login:
+ *   post:
+ *     summary: Connexion utilisateur (retourne un JWT)
+ *     tags: [Auth]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/AuthLoginRequest'
+ *     responses:
+ *       200:
+ *         description: Connexion réussie
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthLoginResponse'
+ *       401:
+ *         description: Identifiants invalides
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
+// POST /auth/register – inscription d’un nouvel utilisateur
+router.post('/register', async (req, res) => {
+  const { username, email, password } = req.body;
+
+  try {
+    // Vérifie si l'utilisateur existe déjà
+    const existing = await User.findOne({ where: { email } });
+    if (existing) {
+      return res.status(400).json({ error: 'Email déjà utilisé' });
     }
-    next();
-  }
-];
 
-// --------- REGISTER ---------
-router.post(
-  '/register',
-  validate([
-    body('username')
-      .isString().withMessage('Username requis')
-      .trim()
-      .isLength({ min: 3, max: 40 }).withMessage('Username 3–40 caractères'),
-    body('email')
-      .isEmail().withMessage('Email invalide')
-      .normalizeEmail(),
-    body('password')
-      .isStrongPassword({ minLength: 8, minSymbols: 0 })
-      .withMessage('Mot de passe trop faible (≥8, lettres/chiffres)')
-  ]),
-  async (req, res) => {
-    // matchedData ne garde que les champs validés/sanitized
-    const { username, email, password } = matchedData(req);
-    const emailNorm = String(email).toLowerCase();
+    // Hachage du mot de passe
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    try {
-      // Vérifie si l'email existe déjà
-      const existing = await User.findOne({ where: { email: emailNorm } });
-      if (existing) {
-        return res.status(400).json({ error: 'Email déjà utilisé' });
+    // Création du compte utilisateur
+    const user = await User.create({
+      username,
+      email,
+      password_hash: hashedPassword,
+      level: 1,
+      xp: 0
+    });
+
+    res.status(201).json({
+      message: 'Utilisateur créé avec succès',
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email
       }
-
-      // Hash du mot de passe
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      const user = await User.create({
-        username: username.trim(),
-        email: emailNorm,
-        password_hash: hashedPassword,
-        level: 1,
-        xp: 0
-      });
-
-      return res.status(201).json({
-        message: 'Utilisateur créé avec succès',
-        user: { id: user.id, username: user.username, email: user.email }
-      });
-    } catch (error) {
-      console.error('Erreur inscription:', error);
-      return res.status(500).json({ error: 'Erreur serveur' });
-    }
+    });
+  } catch (error) {
+    console.error('Erreur inscription:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
   }
-);
+});
 
-// --------- LOGIN ---------
-router.post(
-  '/login',
-  validate([
-    body('email').isEmail().withMessage('Email invalide').normalizeEmail(),
-    body('password').isLength({ min: 1 }).withMessage('Password requis')
-  ]),
-  async (req, res) => {
-    const { email, password } = matchedData(req);
-    const emailNorm = String(email).toLowerCase();
+const jwt = require('jsonwebtoken');
+const SECRET = process.env.JWT_SECRET || 'levelup_secret'; // Mets un vrai secret dans .env
 
-    try {
-      const user = await User.findOne({ where: { email: emailNorm } });
-      // Réponse générique pour ne pas révéler si l'email existe
-      if (!user) return res.status(401).json({ error: 'Email ou mot de passe invalide' });
+// POST /auth/login – connexion
+router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
 
-      const match = await bcrypt.compare(password, user.password_hash);
-      if (!match) return res.status(401).json({ error: 'Email ou mot de passe invalide' });
+  try {
+    // 1. Vérifie si l’utilisateur existe
+    const user = await User.findOne({ where: { email } });
+    if (!user) return res.status(401).json({ error: 'Email ou mot de passe invalide' });
 
-      const token = jwt.sign(
-        { id: user.id, username: user.username, email: user.email },
-        SECRET,
-        { expiresIn: '7d' }
-      );
+    // 2. Compare le mot de passe
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) return res.status(401).json({ error: 'Email ou mot de passe invalide' });
 
-      return res.json({
-        message: 'Connexion réussie',
-        token,
-        user: { id: user.id, username: user.username, email: user.email }
-      });
-    } catch (error) {
-      console.error('Erreur login:', error);
-      return res.status(500).json({ error: 'Erreur serveur' });
-    }
+    // 3. Génère un token
+    const token = jwt.sign(
+      { id: user.id, username: user.username, email: user.email },
+      SECRET,
+      { expiresIn: '7d' } // expire dans 7 jours
+    );
+
+    res.json({ message: 'Connexion réussie', token });
+
+  } catch (error) {
+    console.error('Erreur login:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
   }
-);
+});
 
 module.exports = router;

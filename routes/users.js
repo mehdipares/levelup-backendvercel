@@ -2,14 +2,108 @@
 const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize');
-const { sequelize, User, UserPriority, Category } = require('../models');
+const { sequelize, User, UserPriority, Category } = require('../models'); // ⬅️ + sequelize
 const { progressFromTotalXp } = require('../utils/xp');
+const requireAuth = require('../utils/requireAuth'); // ✅ auth obligatoire pour PATCH & PUT
 
-const requireAuth = require('../utils/requireAuth');         // ✅ auth obligatoire
-const ensureSameUser = require('../utils/ensureSameUser');   // ✅ blocage inter-utilisateurs
+/**
+ * @swagger
+ * tags:
+ *   - name: Users
+ *     description: Profil utilisateur, progression XP et priorités
+ */
 
-// GET /users/:id  → profil + xp_progress + onboarding_done  (🔒 protégé)
-router.get('/:id', requireAuth, ensureSameUser, async (req, res) => {
+/**
+ * @swagger
+ * /users/{id}:
+ *   get:
+ *     summary: Récupérer le profil utilisateur + progression XP
+ *     tags: [Users]
+ *     security: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Profil utilisateur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserProfileResponse'
+ *       404:
+ *         description: Utilisateur introuvable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *
+ *   patch:
+ *     summary: Mettre à jour son profil (email / username)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UserUpdateRequest'
+ *     responses:
+ *       200:
+ *         description: Profil mis à jour (ou inchangé)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserProfileResponse'
+ *       400:
+ *         description: Données invalides / email déjà utilisé / username déjà pris
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Non authentifié
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Accès refusé (modification d’un autre user)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Utilisateur introuvable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
+// GET /users/:id  → profil + xp_progress + onboarding_done
+router.get('/:id', async (req, res) => {
   try {
     const u = await User.findByPk(req.params.id, {
       attributes: ['id', 'email', 'username', 'xp', 'level', 'onboarding_done', 'createdAt', 'updatedAt']
@@ -35,10 +129,13 @@ router.get('/:id', requireAuth, ensureSameUser, async (req, res) => {
   }
 });
 
-// PATCH /users/:id → update email / username  (🔒 protégé)
-router.patch('/:id', requireAuth, ensureSameUser, async (req, res) => {
+// PATCH /users/:id → update email / username (protégé)
+router.patch('/:id', requireAuth, async (req, res) => {
   try {
+    const meId = Number(req.user?.id);
     const targetId = Number(req.params.id);
+    if (!meId) return res.status(401).json({ error: 'Non authentifié' });
+    if (meId !== targetId) return res.status(403).json({ error: 'Accès refusé' });
 
     const { email, username } = req.body || {};
     if (email == null && username == null) {
@@ -118,8 +215,39 @@ router.patch('/:id', requireAuth, ensureSameUser, async (req, res) => {
   }
 });
 
-// GET /users/:id/priorities → préférences (catégorie + score)  (🔒 protégé)
-router.get('/:id/priorities', requireAuth, ensureSameUser, async (req, res) => {
+/**
+ * @swagger
+ * /users/{id}/priorities:
+ *   get:
+ *     summary: Récupérer les priorités (catégorie + score)
+ *     tags: [Users]
+ *     security: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Liste des priorités triée par score DESC
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/UserPriority'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
+
+// GET /users/:id/priorities → préférences (catégorie + score)
+router.get('/:id/priorities', async (req, res) => {
   try {
     const prefs = await UserPriority.findAll({
       where: { user_id: req.params.id },
@@ -133,12 +261,84 @@ router.get('/:id/priorities', requireAuth, ensureSameUser, async (req, res) => {
   }
 });
 
-// PUT /users/:id/priorities/order → enregistre l’ordre  (🔒 protégé)
+/**
+ /**
+ * @swagger
+ * /users/{id}/priorities/order:
+ *   put:
+ *     summary: Enregistrer l’ordre des catégories (du + prioritaire au - prioritaire)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [ordered_category_ids]
+ *             properties:
+ *               ordered_category_ids:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *                 example: [2, 5, 1, 3]
+ *     responses:
+ *       200:
+ *         description: Ordre enregistré
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 ok:
+ *                   type: boolean
+ *                   example: true
+ *                 count:
+ *                   type: integer
+ *                   example: 4
+ *       400:
+ *         description: ordered_category_ids manquant ou invalide
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Non authentifié
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Accès refusé (modification d’un autre user)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
+
+// PUT /users/:id/priorities/order → enregistre l’ordre (protégé)
 // Body: { ordered_category_ids: number[] }  (ordre du + prioritaire au - prioritaire)
-router.put('/:id/priorities/order', requireAuth, ensureSameUser, async (req, res) => {
+router.put('/:id/priorities/order', requireAuth, async (req, res) => {
   const t = await sequelize.transaction();
   try {
+    const meId = Number(req.user?.id);
     const targetId = Number(req.params.id);
+    if (!meId) { await t.rollback(); return res.status(401).json({ error: 'Non authentifié' }); }
+    if (meId !== targetId) { await t.rollback(); return res.status(403).json({ error: 'Accès refusé' }); }
 
     const arrRaw = req.body?.ordered_category_ids;
     if (!Array.isArray(arrRaw) || !arrRaw.length) {
@@ -161,7 +361,8 @@ router.put('/:id/priorities/order', requireAuth, ensureSameUser, async (req, res
       return res.status(400).json({ error: 'Aucun id de catégorie valide' });
     }
 
-    // Barème de scores par rang (1-indexé)
+    // --- Nouveau barème de scores par rang (1-indexé)
+    // 1er=100, 2e=90, 3e=80, 4e=70, 5e=60, 6e=50, puis on descend plus doucement
     const SCORE_TABLE = [100, 90, 80, 70, 60, 50, 40, 35, 30, 25, 20, 15, 10, 5, 0];
     const scoreForRank = (rank) => {
       const idx = rank - 1;

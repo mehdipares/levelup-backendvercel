@@ -5,8 +5,95 @@ const { sequelize, Sequelize, User, UserGoal, GoalTemplate, UserGoalCompletion, 
 const { Op } = Sequelize;
 const { progressFromTotalXp } = require('../utils/xp');
 
-const requireAuth = require('../utils/requireAuth');         // ✅ auth obligatoire
-const ensureSameUser = require('../utils/ensureSameUser');   // ✅ blocage inter-utilisateurs
+/**
+ * @swagger
+ * tags:
+ *   - name: UserGoals
+ *     description: Objectifs sélectionnés par un utilisateur + complétions + XP
+ */
+
+/**
+ * @swagger
+ * /users/{id}/user-goals:
+ *   get:
+ *     summary: Lister les objectifs d’un utilisateur (avec fenêtre de période)
+ *     tags: [UserGoals]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           example: active
+ *         description: active | archived | all (par défaut active)
+ *     responses:
+ *       200:
+ *         description: Liste des objectifs (avec can_complete, period_start/end, etc.)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/UserGoalItem'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *
+ *   post:
+ *     summary: Ajouter un objectif à l’utilisateur (depuis un template)
+ *     tags: [UserGoals]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UserGoalCreateRequest'
+ *     responses:
+ *       201:
+ *         description: Objectif créé
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserGoalCreateResponse'
+ *       200:
+ *         description: Objectif déjà existant (actif ou réactivé)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserGoalCreateResponse'
+ *       400:
+ *         description: Requête invalide
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Template introuvable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
 
 /* ------------------------- Helpers cadence & périodes ------------------------- */
 
@@ -51,6 +138,8 @@ function getPeriodBounds(now, type, interval = 1, weekStart = 1) {
   }
 
   if (type === 'weekly') {
+    // now.getDay(): 0=dim..6=sam
+    // on mappe pour avoir 0=lundi..6=dim et calculer le décalage proprement
     const jsWeekday   = today.getDay();         // 0..6 (dim..sam)
     const weekdayMon0 = (jsWeekday + 6) % 7;    // 0..6 (lun..dim)
     const startMon0   = ((weekStart % 7) + 6) % 7; // 0..6 (lun..dim)
@@ -86,24 +175,8 @@ async function getXpMultiplier(userId, categoryId) {
   return 1.0;
 }
 
-/* ------------------------- 🔒 Gardes globaux de sécurité ------------------------- */
-
-// Pour réutiliser ensureSameUser même si le param s'appelle :userId
-const mapParamToId = (param) => (req, res, next) => {
-  if (req.params && Object.prototype.hasOwnProperty.call(req.params, param)) {
-    req.params.id = req.params[param];
-  }
-  return ensureSameUser(req, res, next);
-};
-
-// Protège /users/:id/...
-router.use('/:id', requireAuth, ensureSameUser);
-
-// Protège aussi /users/:userId/... (toutes les routes ci-dessous qui utilisent :userId)
-router.use('/:userId', requireAuth, mapParamToId('userId'));
-
-
 /* ------------------------- GET user goals (lazy rollover) ------------------------- */
+
 // GET /users/:id/user-goals?status=active|archived|all
 router.get('/:id/user-goals', async (req, res) => {
   const userId = Number(req.params.id);
@@ -111,7 +184,7 @@ router.get('/:id/user-goals', async (req, res) => {
 
   try {
     const where = { user_id: userId };
-    if (status === 'active')        where.status = 'active';
+    if (status === 'active')     where.status = 'active';
     else if (status === 'archived') where.status = 'archived';
 
     const rows = await UserGoal.findAll({
@@ -182,6 +255,59 @@ router.get('/:id/user-goals', async (req, res) => {
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
+/**
+ * @swagger
+ * /users/{id}/user-goals:
+ *   post:
+ *     summary: Ajouter un objectif (à partir d’un template) à l’utilisateur
+ *     tags: [UserGoals]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UserGoalCreateRequest'
+ *     responses:
+ *       201:
+ *         description: Objectif ajouté
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserGoalCreateResponse'
+ *       200:
+ *         description: Objectif déjà existant (déjà actif ou réactivé)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserGoalCreateResponse'
+ *       400:
+ *         description: userId / template_id / cadence invalide
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Template introuvable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
 
 /* ------------------------- POST add user goal ------------------------- */
 // POST /users/:id/user-goals { template_id, cadence: 'daily'|'weekly' }
@@ -235,6 +361,51 @@ router.post('/:id/user-goals', async (req, res) => {
     return res.status(500).json({ error: 'Erreur serveur' });
   }
 });
+/**
+ * @swagger
+ * /users/{userId}/user-goals/{userGoalId}/complete:
+ *   patch:
+ *     summary: Marquer un objectif comme complété (crée une completion + XP)
+ *     tags: [UserGoals]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: path
+ *         name: userGoalId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Completion enregistrée + XP ajouté
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserGoalCompleteResponse'
+ *       404:
+ *         description: Objectif introuvable ou inactif
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       409:
+ *         description: Déjà complété sur la période courante (daily/weekly)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 
 /* ------------------------- PATCH complete ------------------------- */
 // PATCH /users/:userId/user-goals/:userGoalId/complete
@@ -255,9 +426,9 @@ router.patch('/:userId/user-goals/:userGoalId/complete', async (req, res) => {
     const gt = userGoal.GoalTemplate;
 
     const effType     = userGoal.frequency_type_override     || gt.frequency_type;
-    const effInterval = userGoal.frequency_interval_override || gt.frequency_interval;
-    const effWeek     = userGoal.week_start_override         || gt.week_start;
-    const effMax      = userGoal.max_per_period_override     || gt.max_per_period;
+    const effInterval = userGoal.frequency_interval_override ?? gt.frequency_interval;
+    const effWeek     = userGoal.week_start_override         ?? gt.week_start;
+    const effMax      = userGoal.max_per_period_override     ?? gt.max_per_period;
 
     const now = new Date();
     const { start, end } = getPeriodBounds(now, effType, effInterval, effWeek);
@@ -305,6 +476,63 @@ router.patch('/:userId/user-goals/:userGoalId/complete', async (req, res) => {
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
+/**
+ * @swagger
+ * /users/{userId}/user-goals/{userGoalId}/schedule:
+ *   patch:
+ *     summary: Modifier la cadence (daily/weekly) d’un objectif actif
+ *     tags: [UserGoals]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: path
+ *         name: userGoalId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UserGoalScheduleRequest'
+ *     responses:
+ *       200:
+ *         description: Cadence mise à jour + infos de période recalculées
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserGoalScheduleResponse'
+ *       400:
+ *         description: cadence manquante ou invalide
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: UserGoal introuvable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       409:
+ *         description: Objectif archivé — réactivation nécessaire
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 
 /* ------------------------- PATCH schedule ------------------------- */
 // PATCH /users/:userId/user-goals/:userGoalId/schedule
@@ -363,6 +591,45 @@ router.patch('/:userId/user-goals/:userGoalId/schedule', async (req, res) => {
     return res.status(500).json({ error: 'Erreur serveur' });
   }
 });
+/**
+ * @swagger
+ * /users/{userId}/user-goals/{userGoalId}/archive:
+ *   patch:
+ *     summary: Archiver un objectif
+ *     tags: [UserGoals]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: path
+ *         name: userGoalId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Objectif archivé
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserGoalArchiveResponse'
+ *       404:
+ *         description: UserGoal introuvable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 
 /* ------------------------- PATCH archive / unarchive ------------------------- */
 router.patch('/:userId/user-goals/:userGoalId/archive', async (req, res) => {
@@ -378,6 +645,45 @@ router.patch('/:userId/user-goals/:userGoalId/archive', async (req, res) => {
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
+/**
+ * @swagger
+ * /users/{userId}/user-goals/{userGoalId}/unarchive:
+ *   patch:
+ *     summary: Réactiver un objectif archivé (ou retourner l’état si déjà actif)
+ *     tags: [UserGoals]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: path
+ *         name: userGoalId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Objectif actif (réactivé ou déjà actif) + infos de période
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserGoalUnarchiveResponse'
+ *       404:
+ *         description: UserGoal introuvable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 
 router.patch('/:userId/user-goals/:userGoalId/unarchive', async (req, res) => {
   try {
@@ -445,6 +751,51 @@ router.patch('/:userId/user-goals/:userGoalId/unarchive', async (req, res) => {
     return res.status(500).json({ error: 'Erreur serveur' });
   }
 });
+/**
+ * @swagger
+ * /users/{userId}/user-goals/{userGoalId}:
+ *   delete:
+ *     summary: Supprimer un objectif (autorisé uniquement si archivé)
+ *     tags: [UserGoals]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: path
+ *         name: userGoalId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Objectif supprimé
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserGoalDeleteResponse'
+ *       404:
+ *         description: UserGoal introuvable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       409:
+ *         description: Suppression autorisée uniquement pour les objectifs archivés
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 
 /* ------------------------- DELETE (archived only) ------------------------- */
 router.delete('/:userId/user-goals/:userGoalId', async (req, res) => {

@@ -5,6 +5,209 @@ const { GoalTemplate, Category } = require('../models');
 const { Op } = require('sequelize');
 
 /**
+ * @swagger
+ * tags:
+ *   - name: GoalTemplates
+ *     description: Catalogue de templates d’objectifs (globaux et personnels)
+ */
+
+/**
+ * @swagger
+ * /goal-templates:
+ *   get:
+ *     summary: Lister les templates d’objectifs
+ *     description: |
+ *       Sans `owner=me`, ne retourne que les templates `visibility=global`.
+ *       Avec `owner=me`, retourne les templates du propriétaire (toutes visibilités).
+ *     tags: [GoalTemplates]
+ *     security: []
+ *     parameters:
+ *       - in: query
+ *         name: enabled
+ *         required: false
+ *         schema:
+ *           type: boolean
+ *         description: Filtrer par enabled (true/false). Côté backend, accepte aussi 1/0.
+ *       - in: query
+ *         name: category_id
+ *         required: false
+ *         schema:
+ *           type: integer
+ *         description: Filtrer par catégorie
+ *       - in: query
+ *         name: q
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Recherche substring sur title
+ *       - in: query
+ *         name: owner
+ *         required: false
+ *         schema:
+ *           type: string
+ *           enum: [me, all]
+ *         description: owner=me pour récupérer ses templates (nécessite un JWT)
+ *     responses:
+ *       200:
+ *         description: Liste des templates
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/GoalTemplate'
+ *       401:
+ *         description: Auth requise pour owner=me
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *
+ *   post:
+ *     summary: Créer un template (privé par défaut)
+ *     tags: [GoalTemplates]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/GoalTemplateCreateRequest'
+ *     responses:
+ *       201:
+ *         description: Template créé
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GoalTemplate'
+ *       400:
+ *         description: Données invalides
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Authentification requise
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
+/**
+ * @swagger
+ * /goal-templates/{id}:
+ *   get:
+ *     summary: Récupérer un template par ID
+ *     description: |
+ *       Visibilité :
+ *       - global : visible par tous
+ *       - private/unlisted : visible uniquement par le propriétaire
+ *     tags: [GoalTemplates]
+ *     security: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Template trouvé
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GoalTemplate'
+ *       404:
+ *         description: Template non trouvé (ou non accessible)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
+/**
+ * @swagger
+ * /goal-templates/{id}/enabled:
+ *   put:
+ *     summary: Activer/désactiver un template
+ *     description: |
+ *       - Template perso (owner_user_id non null) : propriétaire uniquement
+ *       - Template global (owner_user_id null) : admin uniquement
+ *     tags: [GoalTemplates]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/GoalTemplateEnabledRequest'
+ *     responses:
+ *       200:
+ *         description: État mis à jour
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GoalTemplateEnabledResponse'
+ *       400:
+ *         description: enabled manquant ou invalide
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Authentification requise
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Non autorisé (propriétaire ou admin requis)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Template non trouvé
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
+/**
  * Helper: récupère l'id utilisateur depuis le JWT (req.user).
  * ⚠️ Pas de fallback query/body pour éviter l'escalade d'accès.
  */
@@ -57,7 +260,7 @@ router.get('/', async (req, res) => {
 
     // recherche plein-texte simple côté SQL (titre)
     const q = String(req.query.q || '').trim();
-    if (q) where.title = { [Op.substring]: q }; // MySQL: LIKE %q% (collation souvent case-insensitive)
+    if (q) where.title = { [Op.substring]: q };
 
     const rows = await GoalTemplate.findAll({
       where,
@@ -88,7 +291,6 @@ router.get('/:id', async (req, res) => {
 
     if (tpl.visibility !== 'global') {
       if (!userId || Number(tpl.owner_user_id) !== Number(userId)) {
-        // 404 pour ne pas révéler l’existence
         return res.status(404).json({ error: 'Template non trouvé' });
       }
     }
@@ -122,7 +324,7 @@ router.post('/', async (req, res) => {
       title,
       description: p.description ?? null,
       category_id: p.category_id ?? null,
-      base_xp: p.base_xp ?? 40, // bonus de priorité appliqué au moment du gain d’XP
+      base_xp: p.base_xp ?? 40,
       frequency_type: p.frequency_type ?? 'daily',
       frequency_interval: p.frequency_interval ?? 1,
       week_start: p.week_start ?? 1,
@@ -153,12 +355,10 @@ router.put('/:id/enabled', async (req, res) => {
     if (!tpl) return res.status(404).json({ error: 'Template non trouvé' });
 
     if (tpl.owner_user_id) {
-      // perso : propriétaire requis
       if (!userId || Number(tpl.owner_user_id) !== Number(userId)) {
         return res.status(403).json({ error: 'Non autorisé' });
       }
     } else {
-      // global : admin requis
       if (!isAdmin(req)) {
         return res.status(403).json({ error: 'Réservé aux administrateurs' });
       }

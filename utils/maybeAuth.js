@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const SECRET = process.env.JWT_SECRET || 'levelup_secret'; // même secret que ton /auth/login
+const SECRET = require('./jwtSecret');
 
 module.exports = function maybeAuth(req, _res, next) {
   const auth = req.headers?.authorization || '';

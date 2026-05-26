@@ -118,7 +118,7 @@ router.post('/register', async (req, res) => {
 });
 
 const jwt = require('jsonwebtoken');
-const SECRET = process.env.JWT_SECRET || 'levelup_secret'; // Mets un vrai secret dans .env
+const SECRET = require('../utils/jwtSecret');
 
 // POST /auth/login – connexion
 router.post('/login', async (req, res) => {

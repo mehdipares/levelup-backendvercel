@@ -2,6 +2,8 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { sequelize } = require('./models');
 
 // Routers
@@ -15,6 +17,19 @@ const goalTemplatesRouter = require('./routes/goalTemplates');
 const onboardingRouter    = require('./routes/onboarding');
 
 const app = express();
+
+// --- Securite : headers HTTP (helmet) ---
+// crossOriginResourcePolicy desactive sinon les CORS depuis le front
+// tournant sur un autre origin sont bloques par defaut.
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+
+// Express tourne derriere un proxy en prod (Render) -> trust 1 niveau de proxy
+// pour que les rate limits voient la bonne IP client (sinon tout le monde
+// partage l'IP du proxy et le rate limit declenche trop tot).
+app.set('trust proxy', 1);
+
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 
@@ -51,6 +66,26 @@ app.get('/db-test', async (req, res) => {
   }
 });
 app.use(express.json());
+
+// --- Rate limiting cible sur l'authentification (bruteforce / spam de comptes) ---
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,                   // 10 tentatives / 15 min / IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Trop de tentatives de connexion, reessaie dans quelques minutes.' },
+});
+
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,                    // 5 inscriptions / heure / IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Trop d\'inscriptions depuis cette adresse, reessaie plus tard.' },
+});
+
+app.use('/auth/login',    loginLimiter);
+app.use('/auth/register', registerLimiter);
 
 // Mount des routes
 app.use('/auth',           authRouter);

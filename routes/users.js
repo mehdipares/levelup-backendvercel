@@ -5,6 +5,8 @@ const { Op } = require('sequelize');
 const { sequelize, User, UserPriority, Category } = require('../models'); // ⬅️ + sequelize
 const { progressFromTotalXp } = require('../utils/xp');
 const requireAuth = require('../utils/requireAuth'); // ✅ auth obligatoire pour PATCH & PUT
+const validateBody = require('../utils/validateBody');
+const { updateProfileSchema, reorderPrioritiesSchema } = require('./_validators');
 
 /**
  * @swagger
@@ -130,7 +132,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // PATCH /users/:id → update email / username (protégé)
-router.patch('/:id', requireAuth, async (req, res) => {
+router.patch('/:id', requireAuth, validateBody(updateProfileSchema), async (req, res) => {
   try {
     const meId = Number(req.user?.id);
     const targetId = Number(req.params.id);
@@ -332,7 +334,7 @@ router.get('/:id/priorities', async (req, res) => {
 
 // PUT /users/:id/priorities/order → enregistre l’ordre (protégé)
 // Body: { ordered_category_ids: number[] }  (ordre du + prioritaire au - prioritaire)
-router.put('/:id/priorities/order', requireAuth, async (req, res) => {
+router.put('/:id/priorities/order', requireAuth, validateBody(reorderPrioritiesSchema), async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const meId = Number(req.user?.id);

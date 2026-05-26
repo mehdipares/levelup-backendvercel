@@ -1,6 +1,8 @@
 'use strict';
 const express = require('express');
 const router = express.Router();
+const validateBody = require('../utils/validateBody');
+const { onboardingAnswersSchema } = require('./_validators');
 
 /**
  * On importe ici toutes les entités Sequelize nécessaires.
@@ -194,7 +196,7 @@ router.get('/questions', async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/answers', async (req, res) => {
+router.post('/answers', validateBody(onboardingAnswersSchema), async (req, res) => {
   const t = await sequelize.transaction(); // 🔒 début transaction
   try {
     const lang = (req.body?.language || 'fr').toLowerCase();

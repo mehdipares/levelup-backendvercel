@@ -1,6 +1,8 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const { User } = require('../models');
+const validateBody = require('../utils/validateBody');
+const { registerSchema, loginSchema } = require('./_validators');
 
 const router = express.Router();
 
@@ -80,7 +82,7 @@ const router = express.Router();
  */
 
 // POST /auth/register – inscription d’un nouvel utilisateur
-router.post('/register', async (req, res) => {
+router.post('/register', validateBody(registerSchema), async (req, res) => {
   const { username, email, password } = req.body;
 
   try {
@@ -121,7 +123,7 @@ const jwt = require('jsonwebtoken');
 const SECRET = require('../utils/jwtSecret');
 
 // POST /auth/login – connexion
-router.post('/login', async (req, res) => {
+router.post('/login', validateBody(loginSchema), async (req, res) => {
   const { email, password } = req.body;
 
   try {

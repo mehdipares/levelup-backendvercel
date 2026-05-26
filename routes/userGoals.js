@@ -4,6 +4,8 @@ const router = express.Router();
 const { sequelize, Sequelize, User, UserGoal, GoalTemplate, UserGoalCompletion, UserPriority } = require('../models');
 const { Op } = Sequelize;
 const { progressFromTotalXp } = require('../utils/xp');
+const validateBody = require('../utils/validateBody');
+const { addUserGoalSchema, scheduleUserGoalSchema } = require('./_validators');
 
 /**
  * @swagger
@@ -311,7 +313,7 @@ router.get('/:id/user-goals', async (req, res) => {
 
 /* ------------------------- POST add user goal ------------------------- */
 // POST /users/:id/user-goals { template_id, cadence: 'daily'|'weekly' }
-router.post('/:id/user-goals', async (req, res) => {
+router.post('/:id/user-goals', validateBody(addUserGoalSchema), async (req, res) => {
   try {
     const userId = Number(req.params.id);
     const template_id = Number(req.body?.template_id);
@@ -536,7 +538,7 @@ router.patch('/:userId/user-goals/:userGoalId/complete', async (req, res) => {
 
 /* ------------------------- PATCH schedule ------------------------- */
 // PATCH /users/:userId/user-goals/:userGoalId/schedule
-router.patch('/:userId/user-goals/:userGoalId/schedule', async (req, res) => {
+router.patch('/:userId/user-goals/:userGoalId/schedule', validateBody(scheduleUserGoalSchema), async (req, res) => {
   try {
     const userId = Number(req.params.userId);
     const userGoalId = Number(req.params.userGoalId);

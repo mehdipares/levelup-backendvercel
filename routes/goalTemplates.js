@@ -3,6 +3,8 @@ const express = require('express');
 const router = express.Router();
 const { GoalTemplate, Category } = require('../models');
 const { Op } = require('sequelize');
+const validateBody = require('../utils/validateBody');
+const { createTemplateSchema, toggleEnabledSchema } = require('./_validators');
 
 /**
  * @swagger
@@ -309,7 +311,7 @@ router.get('/:id', async (req, res) => {
  * - visibility par défaut = 'private'
  * - enabled par défaut = true
  */
-router.post('/', async (req, res) => {
+router.post('/', validateBody(createTemplateSchema), async (req, res) => {
   try {
     const userId = getAuthUserId(req);
     if (!userId) return res.status(401).json({ error: 'Authentification requise' });
@@ -347,7 +349,7 @@ router.post('/', async (req, res) => {
  * - Template perso (owner_user_id non null)  -> seul le propriétaire peut toggle.
  * - Template global (owner_user_id null)     -> nécessite un rôle admin.
  */
-router.put('/:id/enabled', async (req, res) => {
+router.put('/:id/enabled', validateBody(toggleEnabledSchema), async (req, res) => {
   try {
     const userId = getAuthUserId(req);
     const { enabled } = req.body || {};

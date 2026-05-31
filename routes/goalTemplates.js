@@ -322,15 +322,21 @@ router.post('/', validateBody(createTemplateSchema), async (req, res) => {
 
     const visibility = ['global', 'private', 'unlisted'].includes(p.visibility) ? p.visibility : 'private';
 
+    // Defaut metier : weekly = jusqu'a 7 validations par semaine (1 par jour max),
+    // daily = 1 par jour. Permet de cliquer plusieurs fois sur un objectif
+    // hebdomadaire si on le realise plusieurs jours dans la semaine.
+    const freqType = p.frequency_type ?? 'daily';
+    const defaultMaxPerPeriod = freqType === 'weekly' ? 7 : 1;
+
     const payload = {
       title,
       description: p.description ?? null,
       category_id: p.category_id ?? null,
       base_xp: p.base_xp ?? 40,
-      frequency_type: p.frequency_type ?? 'daily',
+      frequency_type: freqType,
       frequency_interval: p.frequency_interval ?? 1,
       week_start: p.week_start ?? 1,
-      max_per_period: p.max_per_period ?? 1,
+      max_per_period: p.max_per_period ?? defaultMaxPerPeriod,
       enabled: (typeof p.enabled === 'boolean') ? p.enabled : true,
       owner_user_id: userId,
       visibility,
